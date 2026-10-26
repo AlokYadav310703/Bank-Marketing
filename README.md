@@ -55,7 +55,6 @@ project/
 
 - The dataset has no year, so seasonality cannot be separated from time trends.
 - Results are associations, not causal effects.
-- One train/test split, no cross-validation or hyperparameter tuning yet.
 - The cost ratio used for threshold selection (20:1) is an assumption.
 
 ## How to Run
