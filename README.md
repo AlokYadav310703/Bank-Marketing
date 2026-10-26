@@ -1,108 +1,79 @@
-﻿# Bank Marketing Campaign — Term Deposit Subscription Prediction
+﻿# Bank Marketing Campaign: Who Subscribes to a Term Deposit?
 
-Predicting which customers will subscribe to a term deposit from a Portuguese bank's direct phone marketing campaigns, using the UCI Bank Marketing dataset.
+Exploratory analysis and predictive modelling on the UCI Bank Marketing dataset (45,211 phone calls made by a Portuguese bank), built to help a bank decide **who to call, when to call, and how many times**.
 
 ## Business Problem
 
-A Portuguese bank ran direct phone-call marketing campaigns to sell term deposits. This project analyzes **which customer segments convert**, **when to call**, and **how prior contact history affects outcomes**, then builds a model to score customers by likelihood of subscribing — so call centre agents can prioritize who to call.
+Only about 1 in 9 calls (11.7%) ends in a term deposit subscription. The goal is to find which customer segments convert, how timing and contact history affect results, and whether a model can rank customers so agents call the most promising ones first.
 
-**Target variable:** `y` — did the client subscribe to a term deposit? (`yes` / `no`)
+## Key Results
 
-**Dataset:** UCI Bank Marketing Dataset — 45,211 rows × 17 columns, loaded from `data/bank-full.csv`.
+- **Previous campaign success** converts at **64.7%**, about 5.5x the 11.7% baseline.
+- **Age is U-shaped:** clients aged 66+ convert at 42.6% and ages 18-25 at 24.0%, while ages 36-55 sit below baseline (9.4%).
+- **Clients without a housing loan** convert at 16.7% vs 7.7% for those with one.
+- **Conversion falls as calls increase:** 14.6% on the first call, below 8% after five calls. A cap of 3 to 5 contacts is suggested.
+- **May has 30% of all calls but the lowest conversion (6.7%).**
+- **Best model:** boosted tree models reach a ROC-AUC of about 0.80 (baseline Logistic Regression: 0.775).
+- **Lift:** the top 10% of customers ranked by the model convert at **51.7% (4.4x lift)**, and the top 30% contain about 71% of all subscribers.
 
 ## Project Structure
 
 ```
+project/
+├── README.md
+├── requirements.txt
 ├── data/
-│   └── bank-full.csv                     # raw dataset (semicolon-separated)
+│   └── bank-full.csv
 ├── notebooks/
-│   └── 01_eda.ipynb                       # exploratory data analysis
-|   └── 02_modeling_and_training.ipynb     # preprocessing, modeling, evaluation        
-├── 01_eda.ipynb                                     
-└── README.md
+│   ├── 01_eda.ipynb
+│   └── 02_modeling_and_training.ipynb
+├── images/
+└── docs/
+    └── project_documentation.md
 ```
 
-## Notebook 1: Exploratory Data Analysis (`01_eda.ipynb`)
+## Approach
 
-1. Environment & Imports
-2. Data Loading & Schema
-3. Data Quality Audit (nulls, `unknown` placeholders, impossible values)
-4. Class Imbalance — Target Distribution
-5. Univariate Analysis — Numerical Features (age, balance, duration, campaign contacts)
-6. Univariate Analysis — Categorical Features
-7. Bivariate Analysis — Feature vs Target
-8. Multivariate Analysis (correlation heatmap, job × education segments, balance vs age)
-9. Campaign & Contact History
-10. Key Findings Summary
+1. **Data quality audit:** checked nulls, "unknown" placeholders, the `pdays = -1` sentinel and outliers. No rows were removed.
+2. **EDA and hypothesis testing:** chi-square tests with Cramer's V, Mann-Whitney U, two-proportion z-tests, Wilson confidence intervals and Spearman correlation.
+3. **Feature engineering:** dropped `duration` (data leakage), created `was_previously_contacted` and `age_band`, applied a log transform to `balance`.
+4. **Modelling:** Logistic Regression, Random Forest, XGBoost, LightGBM and CatBoost, with class weights to handle the 7.5 : 1 imbalance and a stratified 80/20 split.
+5. **Evaluation:** ROC-AUC, PR-AUC and F1 on the "yes" class (accuracy is misleading at 88% "no").
+6. **Business translation:** decile lift and cumulative gains charts, plus threshold tuning (recall-targeted and cost-based).
 
-### Key Findings
+## Model Comparison (test set, threshold 0.5)
 
-| # | Feature | Finding | Business Action |
-|---|---------|---------|-----------------|
-| 1 | Class Imbalance | ~88% No, ~12% Yes — severe imbalance | Use AUC-ROC / F1 for modelling; consider SMOTE or class weights |
-| 2 | `poutcome` = success | ~65% conversion vs 11% baseline — 6× lift | Prioritise clients with a previous successful campaign contact |
-| 3 | Age 65+ | Highest conversion rate among age bands | Include in premium targeting segment |
-| 4 | Job: student, retired | Both above baseline | Target younger students and retirees |
-| 5 | Month: Mar, Sep, Oct, Dec | Peak conversion months | Schedule intensive campaigns in these months |
-| 6 | Month: May | Highest volume, below-average conversion | Reduce May call volume; reallocate to Sep/Oct |
-| 7 | Campaign contacts > 3 | Conversion drops sharply after 3 calls | Set a 3-contact cap per client per campaign |
-| 8 | Housing loan = yes | Below baseline conversion | Deprioritise segment or adjust product messaging |
-| 9 | Contact: cellular | Higher conversion than telephone | Prefer mobile contact where available |
-| 10 | `duration` | Strong correlation with `y` but is **data leakage** | Must exclude from any model feature set |
+| Model | ROC-AUC | PR-AUC | F1 (yes) |
+|---|---|---|---|
+| Logistic Regression | 0.7751 | 0.4140 | 0.3865 |
+| Random Forest | 0.7966 | 0.4343 | 0.4426 |
+| XGBoost | 0.8026 | 0.4549 | 0.4553 |
+| LightGBM | 0.8038 | 0.4581 | 0.4547 |
+| CatBoost | 0.8062 | 0.4563 | 0.4481 |
 
-> **Data Leakage Warning:** call `duration` is only known *after* the call ends, so it cannot be used as a predictor in a real deployment — the UCI documentation itself flags this. It is excluded from all modelling in this project.
+## Limitations
 
-## Notebook 2: Preprocessing, Modelling & Evaluation (`02_modeling_and_training.ipynb`)
+- The dataset has no year, so seasonality cannot be separated from time trends.
+- Results are associations, not causal effects.
+- One train/test split, no cross-validation or hyperparameter tuning yet.
+- The cost ratio used for threshold selection (20:1) is an assumption.
 
-1. Setup & Data Loading
-2. Preprocessing & Feature Engineering
-   - Drop `duration` (data leakage)
-   - Convert `pdays = -1` sentinel into a binary `was_previously_contacted` flag, drop raw `pdays`
-   - Bucket `age` into `age_band`
-   - Leave `unknown` as its own category (informative for tree models)
-3. Stratified Train/Test Split (preserves ~88/12 class ratio, done before fitting to avoid leakage)
-4. Preprocessing Pipeline (`ColumnTransformer`: scale numeric, one-hot encode categorical, fit on train only)
-5. Handling Class Imbalance (`class_weight='balanced'`; SMOTE noted as an alternative but not used)
-6. Baseline Model — Logistic Regression
-7. Stronger Models — Random Forest, XGBoost, LightGBM, CatBoost
-8. Model Comparison — ROC and Precision-Recall curves
-9. Feature Importance (validated against EDA hypotheses: `poutcome`, age, month, contact)
-10. Business Translation — Lift / Gains Chart
-11. Threshold Tuning — recall-targeted and cost-based thresholds
+## How to Run
 
-### Model Results (test set)
+```bash
+git clone <https://github.com/AlokYadav310703/Bank-Marketing>
+cd <Bank-Marketing>
+pip install -r requirements.txt
+jupyter notebook
+```
 
-| Model | ROC-AUC | PR-AUC | F1 (yes) | Precision (yes) | Recall (yes) |
-|---|---|---|---|---|---|
-| Logistic Regression | 0.775 | 0.414 | 0.387 | 0.28 | 0.64 |
-| Random Forest | 0.797 | 0.434 | 0.443 | 0.34 | 0.62 |
-| XGBoost | 0.803 | 0.455 | 0.455 | 0.353 | 0.640 |
-| LightGBM | 0.804 | 0.458 | 0.455 | 0.354 | 0.636 |
-| CatBoost | 0.806 | 0.462 | 0.335 | 0.688 | 0.221 |
+Download `bank-full.csv` from the [UCI repository](https://archive.ics.uci.edu/dataset/222/bank+marketing) into the `data/` folder, then run the notebooks in order (`01_eda`, then `02_modeling_and_training`).
 
-Accuracy is misleading on this 88/12 imbalanced dataset, so **ROC-AUC and PR-AUC** (especially PR-AUC, which focuses on the minority "yes" class) are used as the primary comparison metrics. Gradient-boosted models (XGBoost, LightGBM, CatBoost) give the best PR-AUC.
+## Tools
 
-### Threshold Tuning
+Python, pandas, NumPy, matplotlib, seaborn, SciPy, statsmodels, scikit-learn, XGBoost, LightGBM, CatBoost.
 
-Since a missed conversion (false negative) is costlier to the bank than a wasted call (false positive), the classification threshold is lowered below the default 0.5:
+## Full Documentation
 
-- **Recall-targeted threshold:** picks a cutoff that captures at least 80% of true subscribers, trading precision for recall.
-- **Cost-based threshold (optional):** given an estimated cost ratio (e.g. "a missed conversion costs 20x more than a wasted call"), finds the threshold that minimizes total expected cost.
+See [docs/project_documentation.md](docs/project_documentation.md) for detailed findings, tables and recommendations.
 
-**Recommendation:** replace the default 0.5 cutoff in production scoring with the recall-targeted or cost-based threshold, depending on the bank's actual cost assumptions.
-
-## Key Takeaways
-
-- Prioritize customers with a successful previous campaign outcome, older adults (65+), students, and retirees.
-- Concentrate calling effort in March, September, October, and December; scale back May volume.
-- Cap outreach at 3 contacts per client per campaign.
-- Prefer cellular contact over landline.
-- Never use `duration` as a model feature — it's unavailable at prediction time and would leak the outcome.
-- Use PR-AUC/ROC-AUC (not accuracy) to evaluate models given the ~88/12 class imbalance, and tune the decision threshold to reflect the business cost of missed conversions vs. wasted calls.
-
-## Requirements
-
-- Python 3.x
-- `pandas`, `numpy`, `matplotlib`, `seaborn`, `scipy`
-- `scikit-learn`
-- `xgboost`, `lightgbm`, `catboost`
